@@ -345,7 +345,7 @@ func cmdList(args []string) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tGROUP\tSITE\tUSERNAME")
+	fmt.Fprintln(w, "ID\tGROUP\tNAME\tUSERNAME")
 
 	for _, group := range groups {
 		creds, err := client.GroupCredentials(group.ID)
@@ -354,7 +354,7 @@ func cmdList(args []string) error {
 		}
 
 		for _, c := range creds {
-			fmt.Fprintf(w, "%d\t%s\t%s\t%s\n", c.ID, group.Name, c.Site, c.Username)
+			fmt.Fprintf(w, "%d\t%s\t%s\t%s\n", c.ID, group.Name, c.Name, c.Username)
 		}
 	}
 
@@ -480,7 +480,12 @@ func cmdAdd(args []string) error {
 
 	client := api.New(srv.BaseURL, srv.Token)
 
-	site, err := readLine("Site: ")
+	name, err := readLine("Name: ")
+	if err != nil {
+		return err
+	}
+
+	url, err := readLine("URL (optional): ")
 	if err != nil {
 		return err
 	}
@@ -506,7 +511,8 @@ func cmdAdd(args []string) error {
 	}
 
 	req := api.CreateCredentialRequest{
-		Site:      site,
+		Name:      name,
+		Url:       url,
 		Username:  username,
 		Encrypted: encrypted,
 	}
@@ -520,7 +526,7 @@ func cmdAdd(args []string) error {
 		return fmt.Errorf("creating credential: %w", err)
 	}
 
-	fmt.Printf("Created credential %d (%s / %s)\n", cred.ID, cred.Site, cred.Username)
+	fmt.Printf("Created credential %d (%s / %s)\n", cred.ID, cred.Name, cred.Username)
 
 	return nil
 }
@@ -599,7 +605,7 @@ func cmdMove(args []string) error {
 		groupName = moved.Group.Name
 	}
 
-	fmt.Printf("Moved credential %d (%s / %s) to %s\n", moved.ID, moved.Site, moved.Username, groupName)
+	fmt.Printf("Moved credential %d (%s / %s) to %s\n", moved.ID, moved.Name, moved.Username, groupName)
 
 	return nil
 }
@@ -680,12 +686,15 @@ func cmdShow(args []string) error {
 			return fmt.Errorf("copying to clipboard: %w", err)
 		}
 
-		fmt.Printf("Password for %s (%s) copied to clipboard\n", cred.Site, cred.Username)
+		fmt.Printf("Password for %s (%s) copied to clipboard\n", cred.Name, cred.Username)
 
 		return nil
 	}
 
-	fmt.Printf("Site:     %s\n", cred.Site)
+	fmt.Printf("Name:     %s\n", cred.Name)
+	if cred.Url != "" {
+		fmt.Printf("URL:      %s\n", cred.Url)
+	}
 	fmt.Printf("Username: %s\n", cred.Username)
 	fmt.Printf("Password: %s\n", credPassword)
 

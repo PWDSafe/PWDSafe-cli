@@ -123,7 +123,7 @@ func lockTickCmd() tea.Cmd {
 
 // createCredentialCmd encrypts password for every member of groupID and
 // creates a new credential.
-func createCredentialCmd(client *api.Client, groupID int, site, username, password, notes string) tea.Cmd {
+func createCredentialCmd(client *api.Client, groupID int, name, url, username, password, notes string) tea.Cmd {
 	return func() tea.Msg {
 		encrypted, err := vaultops.EncryptForGroup(client, groupID, password)
 		if err != nil {
@@ -131,7 +131,8 @@ func createCredentialCmd(client *api.Client, groupID int, site, username, passwo
 		}
 
 		req := api.CreateCredentialRequest{
-			Site:      site,
+			Name:      name,
+			Url:       url,
 			Username:  username,
 			Encrypted: encrypted,
 		}
@@ -208,7 +209,8 @@ func loadCredentialsCmd(client *api.Client) tea.Cmd {
 			for _, c := range creds {
 				items = append(items, item{
 					credID:    c.ID,
-					site:      c.Site,
+					name:      c.Name,
+					url:       c.Url,
 					username:  c.Username,
 					notes:     c.Notes,
 					groupName: groupName,

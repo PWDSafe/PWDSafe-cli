@@ -78,7 +78,8 @@ const (
 )
 
 const (
-	addFieldSite = iota
+	addFieldName = iota
+	addFieldURL
 	addFieldUsername
 	addFieldPassword
 	addFieldNotes
@@ -149,7 +150,7 @@ type Model struct {
 	copyCountdown  int
 	copyGeneration int
 	copiedPassword string
-	copiedSite     string
+	copiedName     string
 
 	// lastActivity drives vault auto-lock; updated on every key press.
 	lastActivity time.Time
@@ -250,8 +251,10 @@ func New(cfg *config.Config) Model {
 		f.Width = 40
 
 		switch i {
-		case addFieldSite:
-			f.Placeholder = "Site"
+		case addFieldName:
+			f.Placeholder = "Name"
+		case addFieldURL:
+			f.Placeholder = "URL (optional)"
 		case addFieldUsername:
 			f.Placeholder = "Username"
 		case addFieldPassword:
@@ -323,7 +326,7 @@ func (m *Model) resetAddForm() {
 		m.addForm[i].Blur()
 	}
 
-	m.addFocus = addFieldSite
+	m.addFocus = addFieldName
 	m.addForm[m.addFocus].Focus()
 }
 
@@ -353,14 +356,14 @@ func (m *Model) setBusy(s string) tea.Cmd {
 
 // startCopyCountdown arms the post-copy clipboard auto-clear timer and takes
 // over the status bar with a live countdown.
-func (m *Model) startCopyCountdown(password, site string) tea.Cmd {
+func (m *Model) startCopyCountdown(password, name string) tea.Cmd {
 	m.copiedPassword = password
-	m.copiedSite = site
+	m.copiedName = name
 	m.copyCountdown = copyClearAfter
 	m.copyGeneration++
 	m.statusGeneration++ // cancel any pending status expiry
 	m.busy = false
-	m.statusMsg = copyCountdownStatus(site, m.copyCountdown)
+	m.statusMsg = copyCountdownStatus(name, m.copyCountdown)
 
 	return copyTickCmd(m.copyGeneration)
 }
@@ -371,11 +374,11 @@ func (m *Model) cancelCopyCountdown() {
 	m.copyGeneration++
 	m.copyCountdown = 0
 	m.copiedPassword = ""
-	m.copiedSite = ""
+	m.copiedName = ""
 }
 
-func copyCountdownStatus(site string, seconds int) string {
-	return fmt.Sprintf("Copied password for %s · clearing clipboard in %ds", site, seconds)
+func copyCountdownStatus(name string, seconds int) string {
+	return fmt.Sprintf("Copied password for %s · clearing clipboard in %ds", name, seconds)
 }
 
 // lockTimeout returns the configured vault auto-lock timeout; 0 disables
@@ -491,7 +494,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			groupName = msg.summary.Group.Name
 		}
 
-		m.pendingStatusMsg = fmt.Sprintf("Moved %s to %s", msg.summary.Site, groupName)
+		m.pendingStatusMsg = fmt.Sprintf("Moved %s to %s", msg.summary.Name, groupName)
 		m.state = stateLoading
 
 		return m, tea.Batch(loadCredentialsCmd(m.client), m.spinner.Tick)
@@ -503,7 +506,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.setStatus("Error moving credential: " + msg.err.Error())
 
 	case credentialCreatedMsg:
-		m.pendingStatusMsg = fmt.Sprintf("Added %s / %s", msg.summary.Site, msg.summary.Username)
+		m.pendingStatusMsg = fmt.Sprintf("Added %s / %s", msg.summary.Name, msg.summary.Username)
 		m.state = stateLoading
 
 		return m, tea.Batch(loadCredentialsCmd(m.client), m.spinner.Tick)
@@ -581,7 +584,7 @@ func (m Model) handleCopyTick(msg copyTickMsg) (tea.Model, tea.Cmd) {
 	m.copyCountdown--
 
 	if m.copyCountdown > 0 {
-		m.statusMsg = copyCountdownStatus(m.copiedSite, m.copyCountdown)
+		m.statusMsg = copyCountdownStatus(m.copiedName, m.copyCountdown)
 
 		return m, copyTickCmd(msg.gen)
 	}
@@ -653,7 +656,7 @@ func (m Model) handleDecryptResult(msg decryptResultMsg) (tea.Model, tea.Cmd) {
 			return m, m.setStatus("Clipboard copy failed: " + err.Error())
 		}
 
-		return m, m.startCopyCountdown(msg.plaintext, m.selected.site)
+		return m, m.startCopyCountdown(msg.plaintext, m.selected.name)
 	}
 
 	if m.pendingAction == actionMove {
@@ -1069,18 +1072,19 @@ func (m Model) handleAddFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, textinput.Blink
 
 	case "enter":
-		site := strings.TrimSpace(m.addForm[addFieldSite].Value())
+		name := strings.TrimSpace(m.addForm[addFieldName].Value())
+		url := strings.TrimSpace(m.addForm[addFieldURL].Value())
 		username := strings.TrimSpace(m.addForm[addFieldUsername].Value())
 		password := m.addForm[addFieldPassword].Value()
 		notes := strings.TrimSpace(m.addForm[addFieldNotes].Value())
 
-		if site == "" || username == "" || password == "" {
-			return m, m.setStatus("Site, username, and password are required.")
+		if name == "" || username == "" || password == "" {
+			return m, m.setStatus("Name, username, and password are required.")
 		}
 
 		return m, tea.Batch(
 			m.setBusy("Creating credential..."),
-			createCredentialCmd(m.client, m.selectedGroup.ID, site, username, password, notes),
+			createCredentialCmd(m.client, m.selectedGroup.ID, name, url, username, password, notes),
 		)
 	}
 

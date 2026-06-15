@@ -258,7 +258,8 @@ type EncryptedEntry struct {
 // CreateCredentialRequest is the request body for
 // POST /api/groups/{group}/credentials.
 type CreateCredentialRequest struct {
-	Site      string           `json:"site"`
+	Name      string           `json:"name"`
+	Url       string           `json:"url,omitempty"`
 	Username  string           `json:"user"`
 	Notes     *string          `json:"notes,omitempty"`
 	Encrypted []EncryptedEntry `json:"encrypted"`
@@ -279,7 +280,8 @@ func (c *Client) CreateCredential(groupID int, req CreateCredentialRequest) (*Cr
 // CredentialSummary is credential metadata without ciphertext.
 type CredentialSummary struct {
 	ID       int    `json:"id"`
-	Site     string `json:"site"`
+	Name     string `json:"name"`
+	Url      string `json:"url"`
 	Username string `json:"username"`
 	Notes    string `json:"notes"`
 	GroupID  int    `json:"groupid"`

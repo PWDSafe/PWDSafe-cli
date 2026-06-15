@@ -67,7 +67,7 @@ func allocateTableColumns(width int, showGroupCol bool) []table.Column {
 		avail = 10
 	}
 
-	siteW := avail * 30 / 100
+	nameW := avail * 30 / 100
 	userW := avail * 25 / 100
 
 	groupW := 0
@@ -75,10 +75,10 @@ func allocateTableColumns(width int, showGroupCol bool) []table.Column {
 		groupW = avail * 20 / 100
 	}
 
-	notesW := avail - siteW - userW - groupW
+	notesW := avail - nameW - userW - groupW
 
 	return []table.Column{
-		{Title: "Site", Width: siteW},
+		{Title: "Name", Width: nameW},
 		{Title: "Username", Width: userW},
 		{Title: "Notes", Width: notesW},
 		{Title: "Group", Width: groupW},
@@ -111,7 +111,7 @@ func visibleItems(all []item, selectedGroupID int, showAll bool, filterQuery str
 	var out []item
 
 	for _, it := range scoped {
-		hay := strings.ToLower(it.site + " " + it.username + " " + it.notes + " " + it.groupName)
+		hay := strings.ToLower(it.name + " " + it.url + " " + it.username + " " + it.notes + " " + it.groupName)
 		if strings.Contains(hay, q) {
 			out = append(out, it)
 		}
@@ -121,13 +121,13 @@ func visibleItems(all []item, selectedGroupID int, showAll bool, filterQuery str
 }
 
 // toRows converts items into table rows. Always produces 4-element rows
-// (Site, Username, Notes, Group) to match allocateTableColumns, which may
+// (Name, Username, Notes, Group) to match allocateTableColumns, which may
 // give the Group column zero width.
 func toRows(items []item) []table.Row {
 	rows := make([]table.Row, len(items))
 
 	for i, it := range items {
-		rows[i] = table.Row{it.site, it.username, it.notes, it.groupName}
+		rows[i] = table.Row{it.name, it.username, it.notes, it.groupName}
 	}
 
 	return rows
@@ -229,7 +229,7 @@ func (m Model) startCopy() (tea.Model, tea.Cmd) {
 			return m, m.setStatus("Clipboard copy failed: " + err.Error())
 		}
 
-		return m, m.startCopyCountdown(m.plaintext, m.selected.site)
+		return m, m.startCopyCountdown(m.plaintext, m.selected.name)
 	}
 
 	m.pendingAction = actionCopy
@@ -252,7 +252,7 @@ func (m Model) copyUsername() (tea.Model, tea.Cmd) {
 	// would wipe it, so cancel the countdown
 	m.cancelCopyCountdown()
 
-	return m, m.setStatus(fmt.Sprintf("Copied username for %s", m.selected.site))
+	return m, m.setStatus(fmt.Sprintf("Copied username for %s", m.selected.name))
 }
 
 // startMove begins moving the highlighted credential to another group,
@@ -278,7 +278,12 @@ func renderDetailPane(it item, plaintext string, revealed bool, width, height in
 	var b strings.Builder
 
 	b.WriteString(styleTitle.Render("Credential") + "\n\n")
-	fmt.Fprintf(&b, "%s %s\n", styleLabel.Render("Site:    "), it.site)
+	fmt.Fprintf(&b, "%s %s\n", styleLabel.Render("Name:    "), it.name)
+
+	if it.url != "" {
+		fmt.Fprintf(&b, "%s %s\n", styleLabel.Render("URL:     "), it.url)
+	}
+
 	fmt.Fprintf(&b, "%s %s\n", styleLabel.Render("Username:"), it.username)
 
 	if it.notes != "" {

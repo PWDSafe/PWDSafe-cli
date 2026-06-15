@@ -94,7 +94,7 @@ func renderAddForm(group api.Group, fields []textinput.Model, statusMsg string) 
 
 	fmt.Fprintf(&b, "%s %s\n\n", styleTitle.Render("New credential in"), group.Name)
 
-	labels := []string{"Site:    ", "Username:", "Password:", "Notes:   "}
+	labels := []string{"Name:    ", "URL:     ", "Username:", "Password:", "Notes:   "}
 
 	for i, f := range fields {
 		fmt.Fprintf(&b, "%s %s\n", styleLabel.Render(labels[i]), f.View())
