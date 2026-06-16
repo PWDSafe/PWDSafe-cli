@@ -318,24 +318,28 @@ func renderDetailPane(it item, plaintext string, revealed bool, width, height in
 		return styleHelp.Render("No credential selected.")
 	}
 
+	// Each label is 9 chars + 1 space separator; values must fit the remainder.
+	const labelWidth = 10
+	valueBudget := max(width-labelWidth, 0)
+
 	name := it.name
-	if len(name) > 0 && runewidth.StringWidth(name) > width {
-		name = truncateCell(name, width)
+	if runewidth.StringWidth(name) > valueBudget {
+		name = truncateCell(name, valueBudget)
 	}
 
 	url := it.url
-	if len(url) > 0 && runewidth.StringWidth(url) > width {
-		url = truncateCell(url, width)
+	if runewidth.StringWidth(url) > valueBudget {
+		url = truncateCell(url, valueBudget)
 	}
 
 	username := it.username
-	if len(username) > 0 && runewidth.StringWidth(username) > width {
-		username = truncateCell(username, width)
+	if runewidth.StringWidth(username) > valueBudget {
+		username = truncateCell(username, valueBudget)
 	}
 
 	notes := it.notes
-	if len(notes) > 0 && runewidth.StringWidth(notes) > width {
-		notes = truncateCell(notes, width)
+	if runewidth.StringWidth(notes) > valueBudget {
+		notes = truncateCell(notes, valueBudget)
 	}
 
 	var b strings.Builder
@@ -361,6 +365,9 @@ func renderDetailPane(it item, plaintext string, revealed bool, width, height in
 	if revealed && plaintext != "" {
 		pw = plaintext
 		pwStyle = stylePassword
+		if runewidth.StringWidth(pw) > valueBudget {
+			pw = truncateCell(pw, valueBudget)
+		}
 	}
 
 	fmt.Fprintf(&b, "%s %s\n", styleLabel.Render("Password:"), pwStyle.Render(pw))

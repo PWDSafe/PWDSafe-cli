@@ -163,12 +163,15 @@ func renderSidebarLine(n groupNode, width int) string {
 		count = fmt.Sprintf("[%d]", n.count)
 	}
 
+	name := strings.ReplaceAll(n.name, "\n", " ")
+	name = strings.ReplaceAll(name, "\r", "")
+
 	if width <= 0 {
 		if count == "" {
-			return indent + n.name
+			return indent + name
 		}
 
-		return indent + n.name + " " + count
+		return indent + name + " " + count
 	}
 
 	gap := 0
@@ -180,8 +183,6 @@ func renderSidebarLine(n groupNode, width int) string {
 	if nameBudget < 0 {
 		nameBudget = 0
 	}
-
-	name := n.name
 	if lipgloss.Width(name) > nameBudget {
 		name = truncateWithEllipsis(name, nameBudget)
 	}
