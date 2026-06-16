@@ -15,10 +15,21 @@ import (
 )
 
 const (
-	sidebarWidth       = 32
-	detailWidth        = 36
-	narrowThreshold    = 80
+	sidebarWidth = 32
+	detailWidth  = 36
+
+	// narrowThreshold is the minimum terminal width at which the detail pane
+	// is shown alongside the sidebar and table. It must leave the table at
+	// least minTableWidth columns after the sidebar and detail panes:
+	// sidebarWidth + detailWidth + minTableWidth = 32 + 36 + 22 = 90. Below
+	// this the detail pane is dropped so the table is not squeezed narrower
+	// than it can render (which would overflow and wrap the layout).
+	narrowThreshold    = 90
 	verySmallThreshold = 50
+
+	// minTableWidth is the smallest outer (border-inclusive) width the
+	// credentials table can render without overflowing its allocation.
+	minTableWidth = 22
 
 	maskedPassword = "••••••••••"
 )
@@ -140,35 +151,21 @@ func toRows(items []item, widths []int) []table.Row {
 	return rows
 }
 
-// truncateCell shortens a string to fit within width visible cells,
-// appending a truncation marker when content was cut. It clips any embedded
-// newlines so a single cell never wraps onto a second line.
+// truncateCell shortens a string to fit within width display columns,
+// appending an ellipsis when content was cut. Truncation is measured by
+// display width (so wide runes such as CJK or emoji count as two columns)
+// and reserves room for the ellipsis, so the result never exceeds width. Any
+// embedded newlines/carriage returns are clipped first so a single cell never
+// wraps onto a second line or moves the cursor.
 func truncateCell(s string, width int) string {
 	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\r", "")
 
-	if runewidth.StringWidth(s) <= width {
-		return s
+	if width <= 0 {
+		return ""
 	}
 
-	clipper := strings.Builder{}
-	runes := []rune(s)
-	w := 0
-	truncate := false
-	for _, r := range runes {
-		_ = runewidth.RuneWidth(r)
-		if w+1 > width {
-			truncate = true
-			break
-		}
-		clipper.WriteRune(r)
-		w++
-	}
-
-	if truncate {
-		clipper.WriteRune('…')
-	}
-
-	return clipper.String()
+	return runewidth.Truncate(s, width, "…")
 }
 
 // refreshTable recomputes m.visibleItems and the table's columns/rows from
@@ -427,6 +424,8 @@ func renderBrowse(m Model) string {
 		count := countLabel(len(m.visibleItems), "credential", "credentials")
 		bottom = styleHelp.Render(count + " · tab focus · / filter · v reveal · c/u copy · a add · g group · m move · s settings · S server · ? help · q quit")
 	}
+
+	bottom = lipgloss.NewStyle().MaxWidth(max(m.width, 0)).Render(bottom)
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, middle, bottom)
 }
