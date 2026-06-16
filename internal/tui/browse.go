@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 
 	"pwdsafe-cli/internal/clipboard"
 	"pwdsafe-cli/internal/config"
@@ -122,15 +123,52 @@ func visibleItems(all []item, selectedGroupID int, showAll bool, filterQuery str
 
 // toRows converts items into table rows. Always produces 4-element rows
 // (Name, Username, Notes, Group) to match allocateTableColumns, which may
-// give the Group column zero width.
-func toRows(items []item) []table.Row {
+// give the Group column zero width. Long cell content is truncated to fit
+// the column width so it cannot overflow and push the table taller.
+func toRows(items []item, widths []int) []table.Row {
 	rows := make([]table.Row, len(items))
 
 	for i, it := range items {
-		rows[i] = table.Row{it.name, it.username, it.notes, it.groupName}
+		rows[i] = table.Row{
+			truncateCell(it.name, widths[0]),
+			truncateCell(it.username, widths[1]),
+			truncateCell(it.notes, widths[2]),
+			truncateCell(it.groupName, widths[3]),
+		}
 	}
 
 	return rows
+}
+
+// truncateCell shortens a string to fit within width visible cells,
+// appending a truncation marker when content was cut. It clips any embedded
+// newlines so a single cell never wraps onto a second line.
+func truncateCell(s string, width int) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+
+	if runewidth.StringWidth(s) <= width {
+		return s
+	}
+
+	clipper := strings.Builder{}
+	runes := []rune(s)
+	w := 0
+	truncate := false
+	for _, r := range runes {
+		_ = runewidth.RuneWidth(r)
+		if w+1 > width {
+			truncate = true
+			break
+		}
+		clipper.WriteRune(r)
+		w++
+	}
+
+	if truncate {
+		clipper.WriteRune('…')
+	}
+
+	return clipper.String()
 }
 
 // refreshTable recomputes m.visibleItems and the table's columns/rows from
@@ -142,7 +180,12 @@ func (m *Model) refreshTable(resetCursor bool) {
 
 	showGroupCol := m.showAll
 	m.table.SetColumns(allocateTableColumns(m.table.Width(), showGroupCol))
-	m.table.SetRows(toRows(m.visibleItems))
+
+	colWidths := make([]int, len(m.table.Columns()))
+	for i, col := range m.table.Columns() {
+		colWidths[i] = col.Width
+	}
+	m.table.SetRows(toRows(m.visibleItems, colWidths))
 
 	if resetCursor {
 		m.table.SetCursor(0)
@@ -269,25 +312,45 @@ func (m Model) startMove() (tea.Model, tea.Cmd) {
 
 // renderDetailPane renders the right-hand pane showing the highlighted
 // credential's metadata, always visible, and its password, masked until
-// revealed.
+// revealed. Long text values are truncated to fit the pane width.
 func renderDetailPane(it item, plaintext string, revealed bool, width, height int) string {
 	if it.credID == 0 {
 		return styleHelp.Render("No credential selected.")
 	}
 
+	name := it.name
+	if len(name) > 0 && runewidth.StringWidth(name) > width {
+		name = truncateCell(name, width)
+	}
+
+	url := it.url
+	if len(url) > 0 && runewidth.StringWidth(url) > width {
+		url = truncateCell(url, width)
+	}
+
+	username := it.username
+	if len(username) > 0 && runewidth.StringWidth(username) > width {
+		username = truncateCell(username, width)
+	}
+
+	notes := it.notes
+	if len(notes) > 0 && runewidth.StringWidth(notes) > width {
+		notes = truncateCell(notes, width)
+	}
+
 	var b strings.Builder
 
 	b.WriteString(styleTitle.Render("Credential") + "\n\n")
-	fmt.Fprintf(&b, "%s %s\n", styleLabel.Render("Name:    "), it.name)
+	fmt.Fprintf(&b, "%s %s\n", styleLabel.Render("Name:    "), name)
 
 	if it.url != "" {
-		fmt.Fprintf(&b, "%s %s\n", styleLabel.Render("URL:     "), it.url)
+		fmt.Fprintf(&b, "%s %s\n", styleLabel.Render("URL:     "), url)
 	}
 
-	fmt.Fprintf(&b, "%s %s\n", styleLabel.Render("Username:"), it.username)
+	fmt.Fprintf(&b, "%s %s\n", styleLabel.Render("Username:"), username)
 
 	if it.notes != "" {
-		fmt.Fprintf(&b, "%s %s\n", styleLabel.Render("Notes:   "), it.notes)
+		fmt.Fprintf(&b, "%s %s\n", styleLabel.Render("Notes:   "), notes)
 	}
 
 	b.WriteString("\n")
@@ -304,7 +367,7 @@ func renderDetailPane(it item, plaintext string, revealed bool, width, height in
 
 	b.WriteString("\n" + styleHelp.Render("v reveal/hide · c copy"))
 
-	return lipgloss.NewStyle().Width(width).Height(height).Render(b.String())
+	return lipgloss.NewStyle().Width(width).MaxHeight(height).Render(b.String())
 }
 
 // renderBrowse composes the 3-pane browse layout: groups sidebar,
