@@ -13,6 +13,7 @@ import (
 	"pwdsafe-cli/internal/api"
 	"pwdsafe-cli/internal/clipboard"
 	"pwdsafe-cli/internal/config"
+	"pwdsafe-cli/internal/totp"
 )
 
 const (
@@ -64,6 +65,7 @@ type action int
 const (
 	actionView action = iota
 	actionCopy
+	actionCopyTOTP
 	actionMove
 )
 
@@ -145,12 +147,22 @@ type Model struct {
 	// showHelp overlays the keybinding reference on the browse view.
 	showHelp bool
 
-	// clipboard auto-clear countdown after a password copy. copiedPassword
-	// is kept only to verify the clipboard still holds it before clearing.
+	// clipboard auto-clear countdown after a copy. copiedPassword is kept only
+	// to verify the clipboard still holds it before clearing. copiedLabel
+	// distinguishes what was copied ("password", "TOTP") for the status message.
 	copyCountdown  int
 	copyGeneration int
 	copiedPassword string
 	copiedName     string
+	copiedLabel    string
+
+	// TOTP live display state. totpSecret is the decrypted TOTP secret for the
+	// currently selected credential. totpGeneration invalidates stale ticks.
+	totpSecret      string
+	totpCredID      int
+	totpCode        string
+	totpSecondsLeft int
+	totpGeneration  int
 
 	// lastActivity drives vault auto-lock; updated on every key press.
 	lastActivity time.Time
@@ -355,15 +367,16 @@ func (m *Model) setBusy(s string) tea.Cmd {
 }
 
 // startCopyCountdown arms the post-copy clipboard auto-clear timer and takes
-// over the status bar with a live countdown.
-func (m *Model) startCopyCountdown(password, name string) tea.Cmd {
-	m.copiedPassword = password
+// over the status bar with a live countdown. label is "password" or "TOTP".
+func (m *Model) startCopyCountdown(content, name, label string) tea.Cmd {
+	m.copiedPassword = content
 	m.copiedName = name
+	m.copiedLabel = label
 	m.copyCountdown = copyClearAfter
 	m.copyGeneration++
 	m.statusGeneration++ // cancel any pending status expiry
 	m.busy = false
-	m.statusMsg = copyCountdownStatus(name, m.copyCountdown)
+	m.statusMsg = copyCountdownStatus(name, label, m.copyCountdown)
 
 	return copyTickCmd(m.copyGeneration)
 }
@@ -375,10 +388,42 @@ func (m *Model) cancelCopyCountdown() {
 	m.copyCountdown = 0
 	m.copiedPassword = ""
 	m.copiedName = ""
+	m.copiedLabel = ""
 }
 
-func copyCountdownStatus(name string, seconds int) string {
-	return fmt.Sprintf("Copied password for %s · clearing clipboard in %ds", name, seconds)
+func copyCountdownStatus(name, label string, seconds int) string {
+	return fmt.Sprintf("Copied %s for %s · clearing clipboard in %ds", label, name, seconds)
+}
+
+// startTOTPTimer begins the live TOTP display for the given credential,
+// computing the initial code immediately and scheduling per-second ticks.
+func (m *Model) startTOTPTimer(secret string, credID int) tea.Cmd {
+	m.totpSecret = secret
+	m.totpCredID = credID
+	m.totpGeneration++
+
+	code, secsLeft, err := generateTOTPCode(secret)
+	if err == nil {
+		m.totpCode = code
+		m.totpSecondsLeft = secsLeft
+	}
+
+	return totpTickCmd(m.totpGeneration)
+}
+
+// stopTOTPTimer halts the live TOTP display and clears all cached TOTP state.
+func (m *Model) stopTOTPTimer() {
+	m.totpGeneration++
+	m.totpSecret = ""
+	m.totpCredID = 0
+	m.totpCode = ""
+	m.totpSecondsLeft = 0
+}
+
+// generateTOTPCode wraps totp.Generate and is the single call site inside the
+// tui package so the import stays in one place.
+func generateTOTPCode(secret string) (code string, secondsLeft int, err error) {
+	return totp.Generate(secret)
 }
 
 // lockTimeout returns the configured vault auto-lock timeout; 0 disables
@@ -562,6 +607,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case copyTickMsg:
 		return m.handleCopyTick(msg)
 
+	case totpTickMsg:
+		return m.handleTotpTick(msg)
+
 	case lockTickMsg:
 		return m.handleLockTick()
 
@@ -584,7 +632,7 @@ func (m Model) handleCopyTick(msg copyTickMsg) (tea.Model, tea.Cmd) {
 	m.copyCountdown--
 
 	if m.copyCountdown > 0 {
-		m.statusMsg = copyCountdownStatus(m.copiedName, m.copyCountdown)
+		m.statusMsg = copyCountdownStatus(m.copiedName, m.copiedLabel, m.copyCountdown)
 
 		return m, copyTickCmd(msg.gen)
 	}
@@ -608,6 +656,22 @@ func (m Model) handleCopyTick(msg copyTickMsg) (tea.Model, tea.Cmd) {
 	return m, m.setStatus(status)
 }
 
+// handleTotpTick recomputes the live TOTP code once per second while the
+// selected credential has a decrypted TOTP secret.
+func (m Model) handleTotpTick(msg totpTickMsg) (tea.Model, tea.Cmd) {
+	if msg.gen != m.totpGeneration || m.totpSecret == "" {
+		return m, nil
+	}
+
+	code, secsLeft, err := generateTOTPCode(m.totpSecret)
+	if err == nil {
+		m.totpCode = code
+		m.totpSecondsLeft = secsLeft
+	}
+
+	return m, totpTickCmd(msg.gen)
+}
+
 // handleLockTick wipes the in-memory vault key (and any revealed plaintext)
 // after lockTimeout of keyboard inactivity, then re-arms the check.
 func (m Model) handleLockTick() (tea.Model, tea.Cmd) {
@@ -620,6 +684,7 @@ func (m Model) handleLockTick() (tea.Model, tea.Cmd) {
 		m.revealed = false
 		m.revealedCredID = 0
 		m.credential = nil
+		m.stopTOTPTimer()
 
 		cmds = append(cmds, m.setStatus("Vault locked after inactivity."))
 	}
@@ -656,7 +721,34 @@ func (m Model) handleDecryptResult(msg decryptResultMsg) (tea.Model, tea.Cmd) {
 			return m, m.setStatus("Clipboard copy failed: " + err.Error())
 		}
 
-		return m, m.startCopyCountdown(msg.plaintext, m.selected.name)
+		cmds := []tea.Cmd{m.startCopyCountdown(msg.plaintext, m.selected.name, "password")}
+		if msg.totpSecret != "" {
+			cmds = append(cmds, m.startTOTPTimer(msg.totpSecret, m.selected.credID))
+		}
+
+		return m, tea.Batch(cmds...)
+	}
+
+	if m.pendingAction == actionCopyTOTP {
+		m.state = stateBrowse
+
+		if msg.totpSecret == "" {
+			return m, m.setStatus("No TOTP secret for this credential.")
+		}
+
+		code, _, err := generateTOTPCode(msg.totpSecret)
+		if err != nil {
+			return m, m.setStatus("TOTP generation failed: " + err.Error())
+		}
+
+		if err := clipboard.Copy(code); err != nil {
+			return m, m.setStatus("Clipboard copy failed: " + err.Error())
+		}
+
+		return m, tea.Batch(
+			m.startCopyCountdown(code, m.selected.name, "TOTP"),
+			m.startTOTPTimer(msg.totpSecret, m.selected.credID),
+		)
 	}
 
 	if m.pendingAction == actionMove {
@@ -693,6 +785,10 @@ func (m Model) handleDecryptResult(msg decryptResultMsg) (tea.Model, tea.Cmd) {
 	m.busy = false
 	m.statusMsg = ""
 	m.state = stateBrowse
+
+	if msg.totpSecret != "" {
+		return m, m.startTOTPTimer(msg.totpSecret, m.selected.credID)
+	}
 
 	return m, nil
 }
@@ -804,6 +900,9 @@ func (m Model) handleBrowseKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "u":
 		return m.copyUsername()
+
+	case "t":
+		return m.startCopyTOTP()
 
 	case "a":
 		if !m.showAll {
@@ -932,6 +1031,7 @@ func (m Model) handleTableNav(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.revealed = false
 		m.revealedCredID = 0
 		m.plaintext = ""
+		m.stopTOTPTimer()
 	}
 
 	return m, cmd

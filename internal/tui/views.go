@@ -25,6 +25,7 @@ var helpSections = []struct {
 		{"v", "reveal/hide password"},
 		{"c", "copy password (clipboard auto-clears after 30s)"},
 		{"u", "copy username"},
+		{"t", "copy TOTP code (auto-clears after 30s)"},
 		{"/", "filter credentials"},
 	}},
 	{"Organize", [][2]string{

@@ -42,11 +42,13 @@ type credentialFetchErrMsg struct {
 // decryptResultMsg is the result of deriving the vault key (if needed) and
 // decrypting a credential's password. vaultKey/privKey are non-nil only
 // when they were freshly derived in this call, so Update can cache them.
+// totpSecret is the decrypted TOTP secret, empty when none is present.
 type decryptResultMsg struct {
-	vaultKey  []byte
-	privKey   *rsa.PrivateKey
-	plaintext string
-	err       error
+	vaultKey   []byte
+	privKey    *rsa.PrivateKey
+	plaintext  string
+	totpSecret string
+	err        error
 }
 
 // credentialCreatedMsg is sent when a new credential has been created.
@@ -95,6 +97,12 @@ type statusExpireMsg struct {
 // lockTickMsg drives the periodic inactivity check for vault auto-lock.
 type lockTickMsg struct{}
 
+// totpTickMsg drives the one-second timer that refreshes the live TOTP code
+// shown in the detail pane. gen guards against ticks from a previous session.
+type totpTickMsg struct {
+	gen int
+}
+
 // serverLoginResultMsg is the result of loginServerCmd. Exactly one of err,
 // needs2FA, or server is set on success/failure.
 type serverLoginResultMsg struct {
@@ -119,6 +127,10 @@ func statusExpireCmd(gen int) tea.Cmd {
 
 func lockTickCmd() tea.Cmd {
 	return tea.Tick(lockCheckInterval, func(time.Time) tea.Msg { return lockTickMsg{} })
+}
+
+func totpTickCmd(gen int) tea.Cmd {
+	return tea.Tick(time.Second, func(time.Time) tea.Msg { return totpTickMsg{gen: gen} })
 }
 
 // createCredentialCmd encrypts password for every member of groupID and
@@ -215,6 +227,7 @@ func loadCredentialsCmd(client *api.Client) tea.Cmd {
 					notes:     c.Notes,
 					groupName: groupName,
 					groupID:   g.ID,
+					hasTOTP:   c.HasTOTP,
 				})
 			}
 		}
@@ -268,7 +281,14 @@ func decryptCmd(srv *config.Server, cachedPrivKey *rsa.PrivateKey, password stri
 			return decryptResultMsg{vaultKey: newVaultKey, privKey: newPrivKey, err: err}
 		}
 
-		return decryptResultMsg{vaultKey: newVaultKey, privKey: newPrivKey, plaintext: plaintext}
+		var totpSecret string
+		if cred.TOTPSecret != nil && *cred.TOTPSecret != "" {
+			if dec, decErr := vaultcrypto.DecryptCredentialData(*cred.TOTPSecret, privKey); decErr == nil {
+				totpSecret = dec
+			}
+		}
+
+		return decryptResultMsg{vaultKey: newVaultKey, privKey: newPrivKey, plaintext: plaintext, totpSecret: totpSecret}
 	}
 }
 

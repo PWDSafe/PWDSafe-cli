@@ -11,6 +11,7 @@ type item struct {
 	notes     string
 	groupName string
 	groupID   int
+	hasTOTP   bool
 }
 
 func (i item) Title() string { return i.name }

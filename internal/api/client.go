@@ -285,6 +285,7 @@ type CredentialSummary struct {
 	Username string `json:"username"`
 	Notes    string `json:"notes"`
 	GroupID  int    `json:"groupid"`
+	HasTOTP  bool   `json:"has_totp"`
 	Group    *struct {
 		ID   int    `json:"id"`
 		Name string `json:"name"`
@@ -326,7 +327,8 @@ func (c *Client) GroupCredentials(groupID int) ([]CredentialSummary, error) {
 // user, from GET /api/credentials/{id}.
 type Credential struct {
 	CredentialSummary
-	Data string `json:"data"`
+	Data       string  `json:"data"`
+	TOTPSecret *string `json:"totp_secret"`
 }
 
 // Credential calls GET /api/credentials/{id}.

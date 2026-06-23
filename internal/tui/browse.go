@@ -269,10 +269,35 @@ func (m Model) startCopy() (tea.Model, tea.Cmd) {
 			return m, m.setStatus("Clipboard copy failed: " + err.Error())
 		}
 
-		return m, m.startCopyCountdown(m.plaintext, m.selected.name)
+		return m, m.startCopyCountdown(m.plaintext, m.selected.name, "password")
 	}
 
 	m.pendingAction = actionCopy
+
+	return m.ensureDecrypted()
+}
+
+// startCopyTOTP copies the current TOTP code for the highlighted credential to
+// the clipboard, decrypting the secret first if necessary.
+func (m Model) startCopyTOTP() (tea.Model, tea.Cmd) {
+	if m.selected.credID == 0 || !m.selected.hasTOTP {
+		return m, nil
+	}
+
+	if m.totpSecret != "" && m.totpCredID == m.selected.credID {
+		code, _, err := generateTOTPCode(m.totpSecret)
+		if err != nil {
+			return m, m.setStatus("TOTP generation failed: " + err.Error())
+		}
+
+		if err := clipboard.Copy(code); err != nil {
+			return m, m.setStatus("Clipboard copy failed: " + err.Error())
+		}
+
+		return m, m.startCopyCountdown(code, m.selected.name, "TOTP")
+	}
+
+	m.pendingAction = actionCopyTOTP
 
 	return m.ensureDecrypted()
 }
@@ -309,8 +334,10 @@ func (m Model) startMove() (tea.Model, tea.Cmd) {
 
 // renderDetailPane renders the right-hand pane showing the highlighted
 // credential's metadata, always visible, and its password, masked until
-// revealed. Long text values are truncated to fit the pane width.
-func renderDetailPane(it item, plaintext string, revealed bool, width, height int) string {
+// revealed. totpCode and totpSecondsLeft are non-empty/non-zero when the TOTP
+// secret for this credential has been decrypted. Long text values are
+// truncated to fit the pane width.
+func renderDetailPane(it item, plaintext string, revealed bool, totpCode string, totpSecondsLeft int, width, height int) string {
 	if it.credID == 0 {
 		return styleHelp.Render("No credential selected.")
 	}
@@ -369,7 +396,30 @@ func renderDetailPane(it item, plaintext string, revealed bool, width, height in
 
 	fmt.Fprintf(&b, "%s %s\n", styleLabel.Render("Password:"), pwStyle.Render(pw))
 
-	b.WriteString("\n" + styleHelp.Render("v reveal/hide · c copy"))
+	if it.hasTOTP {
+		b.WriteString("\n")
+
+		totpDisplay := "••••••"
+		totpStyle := stylePasswordMasked
+		timerSuffix := ""
+
+		if totpCode != "" {
+			totpDisplay = totpCode
+			totpStyle = stylePassword
+			if totpSecondsLeft > 0 {
+				timerSuffix = fmt.Sprintf("  %ds", totpSecondsLeft)
+			}
+		}
+
+		fmt.Fprintf(&b, "%s %s%s\n", styleLabel.Render("TOTP:    "), totpStyle.Render(totpDisplay), timerSuffix)
+	}
+
+	hint := "v reveal/hide · c copy · u user"
+	if it.hasTOTP {
+		hint += " · t TOTP"
+	}
+
+	b.WriteString("\n" + styleHelp.Render(hint))
 
 	return lipgloss.NewStyle().Width(width).MaxHeight(height).Render(b.String())
 }
@@ -400,7 +450,13 @@ func renderBrowse(m Model) string {
 	panes = append(panes, tablePaneStyle.Render(m.table.View()))
 
 	if detailW > 0 {
-		content := renderDetailPane(m.selected, m.plaintext, m.revealed, max(detailW-4, 0), max(paneH-2, 0))
+		totpCode, totpSecsLeft := "", 0
+		if m.totpCredID == m.selected.credID {
+			totpCode = m.totpCode
+			totpSecsLeft = m.totpSecondsLeft
+		}
+
+		content := renderDetailPane(m.selected, m.plaintext, m.revealed, totpCode, totpSecsLeft, max(detailW-4, 0), max(paneH-2, 0))
 		panes = append(panes, styleDetailPane.Width(max(detailW-4, 0)).Height(max(paneH-2, 0)).Render(content))
 	}
 
@@ -422,7 +478,7 @@ func renderBrowse(m Model) string {
 		bottom = styleStatus.Render(m.statusMsg)
 	default:
 		count := countLabel(len(m.visibleItems), "credential", "credentials")
-		bottom = styleHelp.Render(count + " · tab focus · / filter · v reveal · c/u copy · a add · g group · m move · s settings · S server · ? help · q quit")
+		bottom = styleHelp.Render(count + " · tab focus · / filter · v reveal · c/u/t copy · a add · g group · m move · s settings · S server · ? help · q quit")
 	}
 
 	bottom = lipgloss.NewStyle().MaxWidth(max(m.width, 0)).Render(bottom)
