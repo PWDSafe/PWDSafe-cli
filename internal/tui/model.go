@@ -186,7 +186,8 @@ type Model struct {
 	settingsEditingHex  bool
 
 	// server picker view state.
-	serverPickerCursor int
+	serverPickerCursor  int
+	serverPickerOrigin state
 
 	// add-server form + 2FA prompt state.
 	addServerForm         [numAddServerFields]textinput.Model
@@ -974,7 +975,7 @@ func (m Model) handleBrowseKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.openSettings()
 
 	case "S":
-		return m.openServerPicker()
+		return m.openServerPicker(stateBrowse)
 
 	case "up", "k", "down", "j", "pgup", "pgdown":
 		if m.focus == focusSidebar {
@@ -1225,6 +1226,10 @@ func (m Model) handleErrorKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.err = nil
 
 		return m, loadCredentialsCmd(m.client)
+	case "s":
+		if len(m.cfg.Servers) > 1 {
+			return m.openServerPicker(stateError)
+		}
 	case "q", "esc":
 		return m, tea.Quit
 	}
@@ -1245,7 +1250,7 @@ func (m Model) View() string {
 	case statePasswordPrompt:
 		return overlayCenter(renderBrowse(m), styleModalBox.Render(renderPasswordPrompt(m.pwInput.View(), m.statusMsg)), m.width, m.height)
 	case stateError:
-		return renderError(m.err, m.statusMsg)
+		return renderError(m)
 	case stateGroupPicker:
 		return overlayCenter(renderBrowse(m), styleModalBox.Render(renderGroupPicker(m)), m.width, m.height)
 	case stateAddForm:
@@ -1255,7 +1260,12 @@ func (m Model) View() string {
 	case stateSettings:
 		return overlayCenter(renderBrowse(m), styleModalBox.Render(renderSettings(m)), m.width, m.height)
 	case stateServerPicker:
-		return overlayCenter(renderBrowse(m), styleModalBox.Render(renderServerPicker(m)), m.width, m.height)
+		bg := renderBrowse(m)
+		if m.serverPickerOrigin == stateError {
+			bg = renderError(m)
+		}
+
+		return overlayCenter(bg, styleModalBox.Render(renderServerPicker(m)), m.width, m.height)
 	case stateAddServerForm:
 		return overlayCenter(renderBrowse(m), styleModalBox.Render(renderAddServerForm(m.addServerForm[:], m.statusMsg)), m.width, m.height)
 	case stateAddServer2FA:

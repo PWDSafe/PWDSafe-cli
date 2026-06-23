@@ -127,16 +127,21 @@ func renderCreateGroupForm(parentLabel string, input textinput.Model, statusMsg 
 	return b.String()
 }
 
-func renderError(err error, statusMsg string) string {
+func renderError(m Model) string {
 	var b strings.Builder
 
-	b.WriteString(styleError.Render("Error: "+err.Error()) + "\n")
+	b.WriteString(styleError.Render("Error: "+m.err.Error()) + "\n")
 
-	if statusMsg != "" {
-		b.WriteString("\n" + styleStatus.Render(statusMsg) + "\n")
+	if m.statusMsg != "" {
+		b.WriteString("\n" + styleStatus.Render(m.statusMsg) + "\n")
 	}
 
-	b.WriteString("\n" + styleHelp.Render("r retry · q quit"))
+	help := "r retry · q quit"
+	if len(m.cfg.Servers) > 1 {
+		help = "r retry · s switch server · q quit"
+	}
+
+	b.WriteString("\n" + styleHelp.Render(help))
 
 	return b.String()
 }

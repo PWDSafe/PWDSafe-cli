@@ -792,17 +792,34 @@ func cmdServersUse(args []string) error {
 		return fmt.Errorf("not logged in, run `pwdsafe-cli login` first (%w)", err)
 	}
 
+	resolved := name
 	if _, idx := cfg.FindServer(name); idx < 0 {
-		return fmt.Errorf("unknown server %q", name)
+		// Also accept a bare hostname when it uniquely identifies a server
+		// (ServerName formats names as "host (email)", so "host" alone is valid).
+		prefix := name + " ("
+		var matches []string
+		for _, srv := range cfg.Servers {
+			if strings.HasPrefix(srv.Name, prefix) {
+				matches = append(matches, srv.Name)
+			}
+		}
+		switch len(matches) {
+		case 1:
+			resolved = matches[0]
+		case 0:
+			return fmt.Errorf("unknown server %q", name)
+		default:
+			return fmt.Errorf("ambiguous server name %q, use the full name: %s", name, strings.Join(matches, ", "))
+		}
 	}
 
-	cfg.ActiveServer = name
+	cfg.ActiveServer = resolved
 
 	if err := config.Save(cfg); err != nil {
 		return fmt.Errorf("saving config: %w", err)
 	}
 
-	fmt.Printf("Switched active server to %s\n", name)
+	fmt.Printf("Switched active server to %s\n", resolved)
 
 	return nil
 }

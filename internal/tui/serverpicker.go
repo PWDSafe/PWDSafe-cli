@@ -12,9 +12,10 @@ import (
 )
 
 // openServerPicker switches to the server picker view, placing the cursor on
-// the currently active server.
-func (m Model) openServerPicker() (tea.Model, tea.Cmd) {
+// the currently active server. origin is the state to return to on esc.
+func (m Model) openServerPicker(origin state) (tea.Model, tea.Cmd) {
 	m.serverPickerCursor = 0
+	m.serverPickerOrigin = origin
 
 	for i, srv := range m.cfg.Servers {
 		if srv.Name == m.cfg.ActiveServer {
@@ -33,7 +34,7 @@ func (m Model) openServerPicker() (tea.Model, tea.Cmd) {
 func (m Model) handleServerPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "q":
-		m.state = stateBrowse
+		m.state = m.serverPickerOrigin
 		m.statusMsg = ""
 
 		return m, nil
